@@ -1,0 +1,45 @@
+‎PROJECT TikTok Live AI Host V6.2
+‎
+‎GOAL AI host TikTok Live berbahasa Indonesia. Suara natural. Delay rendah. Auto greet saat start. Menyapa user yang join. Menyebut nama sebelum membaca komentar. Auto notice saat reconnect. Etalase 10 produk. Panel sewa. Siap test setelah isi API key dan sessionid.
+‎
+‎STACK Next.js 14 App Router TailwindCSS Node.js API routes OpenAI GPT-4o-mini untuk teks OpenAI gpt-4o-mini-tts untuk suara tiktok-live-connector untuk komentar SSE untuk event ke frontend JSON untuk penyimpanan ringan
+‎
+‎ENV OPENAI_API_KEY TIKTOK_SESSION_ID
+‎
+‎UI Kiri. TikTok Live Control. Input username. Tombol Start Live. Status Online Reconnecting Idle. Tengah. Log chat dan respon AI. Auto scroll. Kanan. Voice select 6 pilihan. Test Voice. Bawah. Etalase 10 baris input link produk. Tampilkan nama harga deskripsi. Tab Sewa Host. Harian 200k token. Mingguan 1M token. Bulanan 4M token. Developer mode token tak terbatas.
+‎
+‎VOICE RULES Aktifkan preprocessor Indonesia otomatis. Streaming audio. Format mp3. Default voice nova. Opsi suara. nova alloy echo coral verse flow.
+‎
+‎BEHAVIOR Startup. Putar ucapan “Selamat datang kembali di live. Sistem host AI sudah aktif.” Member join. Ucapkan “Halo, selamat datang @username di live kita.” Chat masuk. Ucapkan “@username bilang: …” lalu jawab singkat relevan. Patuh aturan TikTok Shop. Reconnect sukses. Ucapkan “Sinyal stabil, live kembali tersambung.” Idle 180 detik tanpa komentar. Baca 1 item etalase dengan hook singkat.
+‎
+‎INSTALL npm install next react react-dom openai tiktok-live-connector tailwindcss postcss autoprefixer npx tailwindcss init -p
+‎
+‎SCRIPTS package.json dev: next dev -p 5000 build: next build start: next start -p 5000
+‎
+‎FILES tailwind.config.js aktifkan content untuk app dan components postcss.config.js standar data/products.json array kosong data/config.json berisi developerMode true, tokenLimit default, voice default nova
+‎
+‎BACKEND app/api/tts/route.js import OpenAI from "openai" import { NextResponse } from "next/server" const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) export async function POST(req) { try { const { text, voice } = await req.json() let processed = text .replace(/?/g, " ya?") .replace(/./g, ". ") .replace(/,/g, ", ") .replace(/\bhi\b/gi, "hai") .replace(/\bthanks\b/gi, "terima kasih") .replace(/\bok\b/gi, "oke") .replace(/\bplease\b/gi, "tolong ya") .replace(/\bI\b/g, "saya") .replace(/\byou\b/g, "kamu") const resp = await openai.audio.speech.create({ model: "gpt-4o-mini-tts", voice: voice || "nova", input: processed, stream: true, format: "mp3" }) return new Response(resp.body, { headers: { "Content-Type": "audio/mpeg" } }) } catch (e) { return NextResponse.json({ error: e.message }, { status: 500 }) } }
+‎
+‎app/api/startup/route.js import OpenAI from "openai" const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) export async function GET() { const greeting = "Selamat datang kembali di live. Sistem host AI sudah aktif." const resp = await openai.audio.speech.create({ model: "gpt-4o-mini-tts", voice: "nova", input: greeting, stream: true, format: "mp3" }) return new Response(resp.body, { headers: { "Content-Type": "audio/mpeg" } }) }
+‎
+‎app/api/live/start/route.js import { NextResponse } from "next/server" import EventEmitter from "events" import TikTokLiveConnection from "tiktok-live-connector" import OpenAI from "openai"
+‎
+‎const bus = globalThis.liveBus || new EventEmitter() globalThis.liveBus = bus
+‎
+‎const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) function preprocess(t) { return t .replace(/?/g, " ya?") .replace(/./g, ". ") .replace(/,/g, ", ") .replace(/\bhi\b/gi, "hai") .replace(/\bthanks\b/gi, "terima kasih") .replace(/\bok\b/gi, "oke") .replace(/\bplease\b/gi, "tolong ya") .replace(/\bI\b/g, "saya") .replace(/\byou\b/g, "kamu") } async function askGPT(text) { const r = await openai.chat.completions.create({ model: "gpt-4o-mini", temperature: 0.8, messages: [ { role: "system", content: "Kamu adalah Host AI TikTok Shop berbahasa Indonesia. Sopan. Singkat. Engaging. Patuhi pedoman TikTok Shop. Hindari topik sensitif. Jangan jelaskan sistem internal. Arahkan ke link bio bila ditanya cara buat host." }, { role: "user", content: text } ] }) return r.choices[0].message.content }
+‎
+‎export async function POST(req) { try { const { username } = await req.json() if (!username) return NextResponse.json({ error: "username required" }, { status: 400 }) const tiktok = new TikTokLiveConnection(username.replace(/^@/, ""), { sessionId: process.env.TIKTOK_SESSION_ID }) tiktok.on("connected", () => { bus.emit("say", "Sinyal stabil, live kembali tersambung.") bus.emit("log", "connected") }) tiktok.on("member", d => { const msg = Halo, selamat datang @${d.uniqueId} di live kita. bus.emit("say", msg) bus.emit("log", join ${d.uniqueId}) }) tiktok.on("chat", async d => { const prefix = @${d.uniqueId} bilang: ${d.comment} const reply = await askGPT(prefix) const out = @${d.uniqueId}, ${reply} bus.emit("say", out) bus.emit("log", chat ${d.uniqueId}: ${d.comment}) }) tiktok.on("disconnected", () => bus.emit("log", "disconnected")) tiktok.connect().catch(e => bus.emit("log", "connect error " + e.message)) return NextResponse.json({ ok: true }) } catch (e) { return NextResponse.json({ error: e.message }, { status: 500 }) } }
+‎
+‎app/api/live/stream/route.js export async function GET() { const enc = new TextEncoder() return new Response(new ReadableStream({ start(controller) { const send = t => controller.enqueue(enc.encode(data: ${t}\n\n)) const onSay = txt => send(JSON.stringify({ type: "say", text: txt })) const onLog = txt => send(JSON.stringify({ type: "log", text: txt })) const bus = globalThis.liveBus bus.on("say", onSay) bus.on("log", onLog) controller.enqueue(enc.encode("retry: 2000\n\n")) controller.enqueue(enc.encode(data: ${JSON.stringify({ type: "ready" })}\n\n)) controller.closed.finally(() => { bus.off("say", onSay) bus.off("log", onLog) }) } }), { headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", "Connection": "keep-alive" } }) }
+‎
+‎FRONTEND app/page.js Halaman dashboard dengan tiga kolom seperti di bagian UI. Tambahkan fetch POST ke /api/live/start saat klik Start Live. Buka SSE ke /api/live/stream. Setiap event type say. Kirim POST ke /api/tts dengan body { text, voice }. Ambil response audio mpeg lalu play dengan Audio API. Tambahkan selector suara dengan enam opsi. Default nova. Tambahkan tombol Test Voice yang memanggil /api/tts dengan teks uji. Pada mount, panggil GET /api/startup dan play hasilnya.
+‎
+‎ETALASE components/Etalase.js Input 10 link. Ambil metadata title harga deskripsi via fetch HTML meta tag sederhana. Simpan ke data/products.json di memory proses. Tampilkan ringkas di UI. AI gunakan data ini saat idle.
+‎
+‎IDLE PROMO Timer 180 detik tanpa chat. Saat timer terpicu, pilih item etalase berikutnya. Buat hook singkat. Contoh “Produk nomor 2 ini lagi banyak dicari. Cek keranjang kuning ya.” Kirim ke /api/tts.
+‎
+‎SEWA HOST components/SewaHost.js Tiga paket. Simulasi payment. Jika developerMode true. Token tidak berkurang. Panel status token tampil.
+‎
+‎RUN Isi Secrets di Replit OPENAI_API_KEY isi key kamu TIKTOK_SESSION_ID isi sessionid TikTok npm run dev Buka preview. Klik Start Live. Tes suara. Tes join dan chat.
+‎
+‎Catatan singkat Patuh pedoman TikTok Shop. Jangan sebut harga di luar keranjang kuning. Arahkan pertanyaan teknis ke link bio. Sistem siap untuk mass testing gratis. Untuk produksi, pindahkan ke host yang Always On.
