@@ -2,14 +2,14 @@
   "version": 2,
   "builds": [
     {
-      "src": "server/vite.ts",
+      "src": "api/server.ts",
       "use": "@vercel/node"
     }
   ],
   "routes": [
     {
       "src": "/(.*)",
-      "dest": "/server/vite.ts"
+      "dest": "/api/server.ts"
     }
   ]
 }
